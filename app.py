@@ -131,9 +131,9 @@ if uploaded_file is not None:
             resized_image = image.resize(IMAGE_SIZE)
 
             image_array = np.array(
-                resized_image,
-                dtype=np.float32
-            ) / 255.0
+    resized_image,
+    dtype=np.float32
+)
 
             image_array = np.expand_dims(
                 image_array,
