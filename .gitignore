@@ -6,3 +6,5 @@ __pycache__/
 .streamlit/secrets.toml
 dataset/
 .ipynb_checkpoints/
+
+models/tomato_disease_mobilenetv2.keras
