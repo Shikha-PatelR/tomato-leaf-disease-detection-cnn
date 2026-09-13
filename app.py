@@ -7,7 +7,7 @@ from PIL import Image
 # =========================
 # Configuration
 # =========================
-BASE_DIR = r"D:\CropDiseaseDetection"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MODEL_PATH = os.path.join(
     BASE_DIR,
