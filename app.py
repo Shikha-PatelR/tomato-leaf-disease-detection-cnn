@@ -76,12 +76,17 @@ st.markdown(
         margin-top: 20px;
     }
 
-    .guide-box {
-        padding: 15px;
-        border-radius: 10px;
-        background-color: #f5f8f5;
-        margin-bottom: 20px;
-    }
+  .guide-box {
+    padding: 15px;
+    border-radius: 10px;
+    background-color: #f5f8f5;
+    color: #222222 !important;
+    margin-bottom: 20px;
+}
+
+.guide-box b {
+    color: #222222 !important;
+}
     </style>
     """,
     unsafe_allow_html=True
