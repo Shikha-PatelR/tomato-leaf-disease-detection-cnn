@@ -2,7 +2,7 @@ import os
 import numpy as np
 import streamlit as st
 import tensorflow as tf
-from PIL import Image
+from PIL import Image, ImageStat
 
 # =========================
 # Configuration
@@ -22,6 +22,9 @@ CLASS_NAMES = [
     "Late Blight",
     "Healthy"
 ]
+
+# Confidence threshold for warning
+CONFIDENCE_THRESHOLD = 0.70
 
 DISEASE_INFO = {
     "Early Blight": {
@@ -63,7 +66,7 @@ st.markdown(
         text-align: center;
         font-size: 18px;
         color: gray;
-        margin-bottom: 30px;
+        margin-bottom: 25px;
     }
 
     .result-box {
@@ -71,6 +74,13 @@ st.markdown(
         border-radius: 12px;
         border: 1px solid #ddd;
         margin-top: 20px;
+    }
+
+    .guide-box {
+        padding: 15px;
+        border-radius: 10px;
+        background-color: #f5f8f5;
+        margin-bottom: 20px;
     }
     </style>
     """,
@@ -86,7 +96,9 @@ st.markdown(
 )
 
 st.markdown(
-    '<div class="subtitle">CNN-based AI system for tomato leaf disease classification</div>',
+    '<div class="subtitle">'
+    'CNN-based AI system for tomato leaf disease classification'
+    '</div>',
     unsafe_allow_html=True
 )
 
@@ -99,36 +111,172 @@ st.divider()
 def load_model():
     return tf.keras.models.load_model(MODEL_PATH)
 
+
 model = load_model()
 
 # =========================
-# Upload image
+# Photo Guidelines
 # =========================
-st.subheader("📷 Upload Tomato Leaf Image")
+st.subheader("📸 For Better Detection")
 
-uploaded_file = st.file_uploader(
-    "Choose a tomato leaf image",
-    type=["jpg", "jpeg", "png"]
+st.markdown(
+    """
+    <div class="guide-box">
+
+    **Before taking/uploading a photo:**
+
+    ✅ Keep <b>one tomato leaf</b> clearly visible<br>
+    ✅ Keep the leaf near the center<br>
+    ✅ Use natural or bright light<br>
+    ✅ Avoid strong shadows<br>
+    ✅ Avoid blurry photos<br>
+    ✅ Try to keep the complete leaf inside the frame<br>
+    ✅ Avoid objects covering the leaf
+
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 # =========================
-# Prediction
+# Input selection
 # =========================
-if uploaded_file is not None:
+st.subheader("📷 Choose Image Source")
 
-    image = Image.open(uploaded_file).convert("RGB")
+input_mode = st.radio(
+    "Select how you want to provide the leaf image:",
+    ["📤 Upload Image", "📷 Take Photo"],
+    horizontal=True
+)
+
+image = None
+source_name = ""
+
+# =========================
+# Upload Image
+# =========================
+if input_mode == "📤 Upload Image":
+
+    uploaded_file = st.file_uploader(
+        "Choose a tomato leaf image",
+        type=["jpg", "jpeg", "png"]
+    )
+
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file).convert("RGB")
+        source_name = "Uploaded Leaf Image"
+
+# =========================
+# Camera Input
+# =========================
+else:
+
+    camera_photo = st.camera_input(
+        "Take a picture of the tomato leaf"
+    )
+
+    if camera_photo is not None:
+        image = Image.open(camera_photo).convert("RGB")
+        source_name = "Camera Photo"
+
+# =========================
+# Image processing / quality checks
+# =========================
+if image is not None:
+
+    st.subheader("🖼️ Image Preview")
 
     st.image(
         image,
-        caption="Uploaded Leaf Image",
+        caption=source_name,
         width="stretch"
     )
 
-    if st.button("🔍 Detect Disease", type="primary"):
+    # -------------------------
+    # Basic image information
+    # -------------------------
+    width, height = image.size
+
+    gray_image = image.convert("L")
+
+    stats = ImageStat.Stat(gray_image)
+    mean_brightness = stats.mean[0]
+
+    # Simple blur estimate using image gradients
+    gray_array = np.asarray(gray_image, dtype=np.float32)
+
+    if gray_array.shape[0] > 2 and gray_array.shape[1] > 2:
+
+        dx = np.diff(gray_array, axis=1)
+        dy = np.diff(gray_array, axis=0)
+
+        sharpness_score = (
+            np.var(dx) + np.var(dy)
+        )
+
+    else:
+        sharpness_score = 0
+
+    # -------------------------
+    # Quality warnings
+    # -------------------------
+    quality_warnings = []
+
+    if width < 150 or height < 150:
+        quality_warnings.append(
+            "Image resolution is quite low."
+        )
+
+    if mean_brightness < 45:
+        quality_warnings.append(
+            "Image appears too dark."
+        )
+
+    if mean_brightness > 220:
+        quality_warnings.append(
+            "Image appears very bright/overexposed."
+        )
+
+    if sharpness_score < 20:
+        quality_warnings.append(
+            "Image may be blurry."
+        )
+
+    if quality_warnings:
+
+        st.warning("⚠️ Image Quality Warning")
+
+        for warning in quality_warnings:
+            st.write(f"• {warning}")
+
+        st.info(
+            "For better detection, try taking another clearer photo."
+        )
+
+    else:
+
+        st.success(
+            "✅ Image quality looks suitable for detection."
+        )
+
+    # =========================
+    # Detect button
+    # =========================
+    if st.button(
+        "🔍 Detect Disease",
+        type="primary",
+        use_container_width=True
+    ):
 
         with st.spinner("Analyzing leaf image..."):
 
-            resized_image = image.resize(IMAGE_SIZE)
+            # IMPORTANT:
+            # Model already contains Rescaling(1/255)
+            # Therefore DO NOT divide image_array by 255 here.
+
+            resized_image = image.resize(
+                IMAGE_SIZE
+            )
 
             image_array = np.array(
                 resized_image,
@@ -145,16 +293,22 @@ if uploaded_file is not None:
                 verbose=0
             )
 
-            predicted_index = np.argmax(predictions[0])
+            probabilities = predictions[0]
 
-            predicted_class = CLASS_NAMES[predicted_index]
+            predicted_index = np.argmax(
+                probabilities
+            )
 
-            confidence = (
-                predictions[0][predicted_index] * 100
+            predicted_class = CLASS_NAMES[
+                predicted_index
+            ]
+
+            confidence = float(
+                probabilities[predicted_index]
             )
 
         # =========================
-        # Display prediction
+        # Prediction result
         # =========================
         st.markdown(
             '<div class="result-box">',
@@ -163,15 +317,44 @@ if uploaded_file is not None:
 
         st.subheader("🎯 Prediction Result")
 
-        st.success(
-            f"Prediction: {predicted_class}"
-        )
+        # -------------------------
+        # Confidence handling
+        # -------------------------
+        if confidence >= CONFIDENCE_THRESHOLD:
 
-        st.metric(
-            "Confidence",
-            f"{confidence:.2f}%"
-        )
+            st.success(
+                f"Prediction: {predicted_class}"
+            )
 
+            st.metric(
+                "Confidence",
+                f"{confidence * 100:.2f}%"
+            )
+
+        else:
+
+            st.warning(
+                "⚠️ The model is not sufficiently confident."
+            )
+
+            st.metric(
+                "Top Prediction",
+                predicted_class
+            )
+
+            st.metric(
+                "Confidence",
+                f"{confidence * 100:.2f}%"
+            )
+
+            st.info(
+                "Please capture a clearer photo of a single "
+                "tomato leaf with good lighting and try again."
+            )
+
+        # -------------------------
+        # Disease information
+        # -------------------------
         st.markdown(
             f"**Description:** "
             f"{DISEASE_INFO[predicted_class]['description']}"
@@ -182,29 +365,49 @@ if uploaded_file is not None:
             f"{DISEASE_INFO[predicted_class]['advice']}"
         )
 
-        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown(
+            "</div>",
+            unsafe_allow_html=True
+        )
 
         # =========================
-        # Probabilities
+        # Class probabilities
         # =========================
         st.subheader("📊 Class Probabilities")
 
         for class_name, probability in zip(
             CLASS_NAMES,
-            predictions[0]
+            probabilities
         ):
+
+            percentage = float(
+                probability * 100
+            )
+
             st.write(
                 f"**{class_name}**: "
-                f"{probability * 100:.2f}%"
+                f"{percentage:.2f}%"
             )
 
             st.progress(
                 float(probability)
             )
 
+        # =========================
+        # Final guidance
+        # =========================
+        st.divider()
+
+        st.caption(
+            "⚠️ AI prediction is an automated screening result "
+            "and should not replace expert agricultural diagnosis."
+        )
+
 else:
+
     st.info(
-        "Upload a tomato leaf image to begin disease detection."
+        "Upload a tomato leaf image or take a photo "
+        "to begin disease detection."
     )
 
 # =========================
